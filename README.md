@@ -14,7 +14,7 @@ MP.Json.Validation also conforms to the latest standards including Drafts 4, 6, 
 
 Documentation for the MP.Json.Validation library is maintained in the wiki for the repository. 
 
-[Wiki Home](../../../../mParticle/mparticle-json/wiki)
+[Wiki Home](../../../../wesnerm/mparticle-json/wiki)
 
 
 ## Installation
