@@ -3,7 +3,7 @@
   <PropertyGroup>
     <ProjectGuid>{EDE7CA7D-5B94-4540-AA34-BA69D497C289}</ProjectGuid>
     <OutputType>Library</OutputType>
-    <TargetFramework>netstandard2.0</TargetFramework>
+    <TargetFramework>netstandard2.1</TargetFramework>
     <ApplicationIcon />
     <StartupObject />
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
