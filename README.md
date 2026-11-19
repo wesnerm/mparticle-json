@@ -21,6 +21,8 @@ Documentation for the MP.Json.Validation library is maintained in the wiki for t
 
 This library is available  as a package in Nuget as MP.Json.Validation.
 
+Version 2.0 contains breaking changes to how `MPJson` represents JSON null and undefined, and targets .NET 10. See [CHANGELOG.md](CHANGELOG.md) before upgrading from 1.x.
+
 ## Command-Line Validator
 
 The `MP.Json.Cli` project builds `mpjson`, a console app that validates a JSON document against a schema and writes the validation errors to standard output as a JSON array (`[]` when the document is valid).

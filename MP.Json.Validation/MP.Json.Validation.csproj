@@ -16,13 +16,13 @@
     <RepositoryUrl>https://github.com/mParticle/mparticle-json</RepositoryUrl>
     <PackageTags>JSON Schema</PackageTags>
     <Copyright>Copyright (c) 2020, mParticle, Inc</Copyright>
-    <PackageReleaseNotes>Initial release of MP.Json.Validation library</PackageReleaseNotes>
-    <Version>1.0.0.0</Version>
-    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <PackageReleaseNotes>2.0.0 (breaking): JSON null is now represented as null and undefined as DBNull.Value; default(MPJson) and MPJson.From(null) are JSON null; MapAll/MapChildren abort on DBNull.Value; JsonPointer.Find returns DBNull.Value for a missing path. Targets net10.0 (was netstandard2.1). Also: 100 ms non-sticky regex timeout, culture-invariant number parsing and formatting. See CHANGELOG.md.</PackageReleaseNotes>
+    <Version>2.0.0</Version>
+    <AssemblyVersion>2.0.0.0</AssemblyVersion>
     <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
     <AllowedOutputExtensionsInPackageBuildOutputFolder>$(AllowedOutputExtensionsInPackageBuildOutputFolder);.pdb</AllowedOutputExtensionsInPackageBuildOutputFolder>      
     <PackageId>MP.Json.Validation</PackageId>      
-    <FileVersion>1.0.0.0</FileVersion>
+    <FileVersion>2.0.0.0</FileVersion>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">

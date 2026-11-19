@@ -9,7 +9,7 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>mpjson</ToolCommandName>
     <PackageId>MP.Json.Cli</PackageId>
-    <Version>1.0.0.0</Version>
+    <Version>2.0.0</Version>
     <Authors>Wesner Moise</Authors>
     <Company>mParticle, Inc</Company>
     <Product>MP.Json.Validation</Product>
