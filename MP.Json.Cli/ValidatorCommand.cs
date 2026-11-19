@@ -128,10 +128,10 @@ Exit codes:
         private static bool regexWarmedUp;
 
         /// <summary>
-        /// The library gives each schema "pattern" a 0.5ms match timeout. In a fresh process
-        /// the first match also pays for JIT-compiling the regex engine, which can exceed that
-        /// budget and produce a spurious TimeLimit error that cancels validation. Running one
-        /// throwaway match first keeps a short-lived CLI process deterministic.
+        /// The library gives each schema "pattern" a 100ms match timeout. In a fresh process
+        /// the first match also pays for JIT-compiling the regex engine. Running one throwaway
+        /// match first keeps that start-up cost out of the first real match's time budget, so a
+        /// slow machine cannot turn it into a spurious TimeLimit error.
         /// </summary>
         private static void WarmUpRegexEngine()
         {

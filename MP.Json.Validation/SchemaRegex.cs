@@ -21,7 +21,13 @@ namespace MP.Json.Validation
 {
     public class SchemaRegex
     {
-        private const double TimeLimitMs = 0.5;
+        /// <summary>
+        /// Per-match timeout. .NET measures regex timeouts with Environment.TickCount64,
+        /// which advances in ~15.6ms steps on Windows, so any limit below that can fire on
+        /// matches that take microseconds. 100ms stays well clear of the clock granularity
+        /// while still bounding catastrophic backtracking.
+        /// </summary>
+        private const double TimeLimitMs = 100;
 
         public SchemaRegex(string pattern, RegexType type = RegexType.Normal)
         {
@@ -91,6 +97,12 @@ namespace MP.Json.Validation
             return success ? SchemaRegexSuccess.Success : SchemaRegexSuccess.Failed;
         }
 
+        /// <remarks>
+        /// Failures only affect the current match. SchemaRegex instances are cached and
+        /// shared process-wide (see SchemaRegexCache), so faulting the instance after one
+        /// timeout or exception would silently break the pattern for every schema and
+        /// every later document.
+        /// </remarks>
         private SchemaRegexSuccess MatchNormally(string value)
         {
             try
@@ -100,17 +112,12 @@ namespace MP.Json.Validation
                     ? SchemaRegexSuccess.Success
                     : SchemaRegexSuccess.Failed;
             }
-            catch (RegexMatchTimeoutException re)
+            catch (RegexMatchTimeoutException)
             {
-                RegularExpression = null;
-                Type = RegexType.FaultedTimedOut;
                 return SchemaRegexSuccess.TimedOut;
             }
-            catch (Exception)
+            catch (ArgumentException)
             {
-                // This should be argument exception
-                RegularExpression = null;
-                Type = RegexType.FaultedException;
                 return SchemaRegexSuccess.Exception;
             }
         }
