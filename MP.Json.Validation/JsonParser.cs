@@ -481,7 +481,8 @@ namespace MP.Json
             }
 
             string number = buffer.ToString();
-            if (error == null && !double.TryParse(number, out result))
+            // JSON numbers always use '.', whatever the current culture
+            if (error == null && !double.TryParse(number, NumberStyles.Float, CultureInfo.InvariantCulture, out result))
                 error = InvalidNumber;
 
             if (error == null)

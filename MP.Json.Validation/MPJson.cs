@@ -16,6 +16,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Text;
 
@@ -378,7 +379,11 @@ namespace MP.Json
                     break;
 
                 default:
-                    builder.Append(obj);
+                    // Numbers must use '.', whatever the current culture
+                    if (obj is IFormattable formattable)
+                        builder.Append(formattable.ToString(null, CultureInfo.InvariantCulture));
+                    else
+                        builder.Append(obj);
                     break;
             }
         }
