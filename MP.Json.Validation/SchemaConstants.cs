@@ -40,6 +40,44 @@ namespace MP.Json.Validation
         public const string Schema6 = "http://json-schema.org/draft-06/schema";
         public const string Schema7 = "http://json-schema.org/draft-07/schema";
         public const string Schema201909 = "http://json-schema.org/draft/2019-09/schema";
+
+        /// <summary>
+        /// Identifies the draft from a meta-schema URI such as a $schema value.
+        /// </summary>
+        /// <remarks>
+        /// Accepts the usual spellings: with or without an empty fragment ("…/schema#"),
+        /// and over http or https (2019-09's canonical URI uses https).
+        /// </remarks>
+        public static bool TryGetDraft(string uri, out SchemaVersion version)
+        {
+            version = SchemaVersion.None;
+            if (string.IsNullOrEmpty(uri))
+                return false;
+
+            string normalized = uri.Trim();
+            if (normalized.EndsWith("#", StringComparison.Ordinal))
+                normalized = normalized.Substring(0, normalized.Length - 1);
+            if (normalized.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                normalized = "http://" + normalized.Substring("https://".Length);
+
+            switch (normalized)
+            {
+                case Schema4: version = SchemaVersion.Draft4; break;
+                case Schema6: version = SchemaVersion.Draft6; break;
+                case Schema7: version = SchemaVersion.Draft7; break;
+                case Schema201909: version = SchemaVersion.Draft201909; break;
+                default: return false;
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Whether the URI is under the json-schema.org meta-schema namespace (http or https)
+        /// </summary>
+        public static bool IsStandardUri(string uri)
+            => uri != null
+               && (uri.StartsWith(StandardPrefix, StringComparison.OrdinalIgnoreCase)
+                   || uri.StartsWith("https://json-schema.org/draft", StringComparison.OrdinalIgnoreCase));
         #endregion
 
     }

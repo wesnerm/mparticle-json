@@ -34,33 +34,15 @@ namespace MP.Json.Validation
             var map = json.Value as KeyValuePair<string, object>[];
             if (map != null)
             {
-                object schemaVersion = map.GetProperty("$schema");
-                if (schemaVersion != null)
-                {
-                    switch (schemaVersion)
-                    {
-                        case SchemaConstants.Schema4:
-                            Version &= SchemaVersion.Draft4;
-                            break;
-                        case SchemaConstants.Schema6:
-                            Version &= SchemaVersion.Draft6;
-                            break;
-                        case SchemaConstants.Schema7:
-                            Version &= SchemaVersion.Draft7;
-                            break;
-                        case SchemaConstants.Schema201909:
-                            Version &= SchemaVersion.Draft201909;
-                            break;
-                    }
-                }
+                // A recognized $schema declares the draft and takes precedence over the
+                // version argument. Unrecognized $schema values are ignored.
+                if (SchemaConstants.TryGetDraft(map.GetProperty("$schema") as string, out SchemaVersion declared))
+                    Version = declared;
 
-                object baseUriProp = map.GetProperty("$id");
-                if (baseUriProp == null
-                    && (baseUriProp = map.GetProperty("id")) != null
-                    && !LimitVersion(SchemaVersion.Draft4, false))
-                {
-                    baseUriProp = null;
-                }
+                // $id (draft 6+) or id (draft 4) sets the base URI
+                object baseUriProp = Allows(SchemaVersion.Draft6) ? map.GetProperty("$id") as string : null;
+                if (baseUriProp == null && Allows(SchemaVersion.Draft4, false))
+                    baseUriProp = map.GetProperty("id") as string;
 
                 string baseUri = JsonPointer.Canonicalize(baseUriProp as string);
                 if (string.IsNullOrEmpty(baseUri)
@@ -147,7 +129,17 @@ namespace MP.Json.Validation
             return errors;
         }
 
-        internal bool LimitVersion(SchemaVersion version, bool includeLaterVersions = true)
+        /// <summary>
+        /// Whether a keyword introduced in <paramref name="version"/> applies to this schema's draft.
+        /// </summary>
+        /// <param name="version">draft that introduced the keyword</param>
+        /// <param name="includeLaterVersions">whether later drafts also have the keyword</param>
+        /// <remarks>
+        /// Keywords that do not belong to the schema's draft are unknown keywords, which
+        /// JSON Schema requires validators to ignore. A schema without a recognized
+        /// $schema accepts keywords from every draft.
+        /// </remarks>
+        internal bool Allows(SchemaVersion version, bool includeLaterVersions = true)
         {
             if (includeLaterVersions)
             {
@@ -157,9 +149,7 @@ namespace MP.Json.Validation
                 version = SchemaVersion.All & ((SchemaVersion)x);
             }
 
-            if ((version & Version) == 0) return false;
-            Version &= version;
-            return true;
+            return (version & Version) != 0;
         }
 
 

@@ -76,6 +76,12 @@ namespace MP.Json.Validation
         Else = Keyword.Else,
         MaxContains = Keyword.MaxContains,
         MinContains = Keyword.MinContains,
+        UnevaluatedProperties = Keyword.UnevaluatedProperties,
+        UnevaluatedItems = Keyword.UnevaluatedItems,
+
+        // Content assertions (only when JsonValidator.ValidateContent is set)
+        ContentEncoding = Keyword.ContentEncoding,
+        ContentMediaType = Keyword.ContentMediaType,
 
         // Miscellaneous Errors
         Type = Keyword.Type,

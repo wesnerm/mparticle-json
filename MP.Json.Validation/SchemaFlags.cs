@@ -79,6 +79,8 @@ namespace MP.Json.Validation
         Else = 1L << Keyword.Else,                   // v7
         MaxContains = 1L << Keyword.MaxContains,            // v8, array property
         MinContains = 1L << Keyword.MinContains,            // v8, array property
+        UnevaluatedProperties = 1L << Keyword.UnevaluatedProperties, // v8, object property
+        UnevaluatedItems = 1L << Keyword.UnevaluatedItems,  // v8, array property
 
         ArrayProperties = 0
             | (1L << Keyword.AdditionalItems)
@@ -89,6 +91,7 @@ namespace MP.Json.Validation
             | (1L << Keyword.UniqueItems)
             | (1L << Keyword.MaxContains)
             | (1L << Keyword.MinContains)
+            | (1L << Keyword.UnevaluatedItems)
             ,
 
         ObjectProperties = 0
@@ -101,6 +104,7 @@ namespace MP.Json.Validation
             | (1L << Keyword.DependentRequired)
             | (1L << Keyword.DependentSchemas)
             | (1L << Keyword.PatternProperties)
+            | (1L << Keyword.UnevaluatedProperties)
             ,
 
         NumberProperties = 0

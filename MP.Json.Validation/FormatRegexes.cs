@@ -33,20 +33,26 @@ namespace MP.Json.Validation
             | RegexOptions.IgnorePatternWhitespace
             | RegexOptions.Singleline;
 
-        public static readonly Regex Email = new Regex(@"^([A-Z\d+.\-])+\@([A-Z\d\-.])+\.[A-Z\d\-]+$", StandardOptions);
+        // These are .NET regexes. They use [0-9] rather than \d (which matches any Unicode
+        // digit) and end with \z rather than $ (which also matches before a final newline).
 
-        public static readonly Regex Hostname = new Regex(@"^([A-Z\d][A-Z\d-]{0,63}\.)*([A-Z\d][A-Z\d-]{1,63})$", StandardOptions);
+        public static readonly Regex Email = new Regex(@"^([A-Z0-9+.\-])+\@([A-Z0-9\-.])+\.[A-Z0-9\-]+\z", StandardOptions);
 
-        public static readonly Regex Ipv4 = new Regex(@"^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$", StandardOptions);
+        // Labels are 1-63 letters, digits and hyphens, and do not start or end with a hyphen
+        public static readonly Regex Hostname = new Regex(@"^([A-Z0-9]([A-Z0-9-]{0,61}[A-Z0-9])?\.)*[A-Z0-9]([A-Z0-9-]{0,61}[A-Z0-9])?\z", StandardOptions);
 
-        public static readonly Regex Uuid = new Regex(@"^[\dA-F]{8}\-[\dA-F]{4}\-[\dA-F]{4}\-[\dA-F]{4}\-[\dA-F]{12}$", StandardOptions);
+        // Dotted decimal without leading zeros (which some parsers read as octal)
+        public static readonly Regex Ipv4 = new Regex(@"^((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\z", StandardOptions);
+
+        public static readonly Regex Uuid = new Regex(@"^[0-9A-F]{8}\-[0-9A-F]{4}\-[0-9A-F]{4}\-[0-9A-F]{4}\-[0-9A-F]{12}\z", StandardOptions);
 
         public static readonly Regex UriReference = new Regex(@"^(([^:/?#]+):)?(//([^/?#]*))?([^?#]*)(\?([^#]*))?(\#(.*))?", StandardOptions);
 
-        public static readonly Regex Duration = new Regex(@"^(-?)P(?=\d|T\d)((\d+)Y)?((\d+)M)?((\d+)([DW]))?(T((\d+)H)?((\d+)M)?((\d+(\.\d+)?)S)?)?$", StandardOptions);
+        public static readonly Regex Duration = new Regex(@"^(-?)P(?=[0-9]|T[0-9])(([0-9]+)Y)?(([0-9]+)M)?(([0-9]+)([DW]))?(T(([0-9]+)H)?(([0-9]+)M)?(([0-9]+(\.[0-9]+)?)S)?)?\z", StandardOptions);
 
-        public static readonly Regex JsonPointer = new Regex(@"^(/([^~]|~[01])*)?$", StandardOptions);
+        public static readonly Regex JsonPointer = new Regex(@"^(/([^~]|~[01])*)?\z", StandardOptions);
 
-        public static readonly Regex RelativeJsonPointer = new Regex(@"^[0-9]+(\#|/([^#~]|~[01])*)?$", StandardOptions);
+        // A non-negative integer without leading zeros, then "#" or a JSON pointer
+        public static readonly Regex RelativeJsonPointer = new Regex(@"^(0|[1-9][0-9]*)(\#|/([^#~]|~[01])*)?\z", StandardOptions);
     }
 }

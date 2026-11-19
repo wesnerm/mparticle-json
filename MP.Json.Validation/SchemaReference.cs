@@ -33,16 +33,10 @@ namespace MP.Json.Validation
         public SchemaReference(string uri)
         {
             this.Uri = uri;
-            if (baseUri.StartsWith(SchemaConstants.StandardPrefix))
+            if (SchemaConstants.IsStandardUri(baseUri))
             {
-                if (baseUri == SchemaConstants.Schema4)
-                    Version = SchemaVersion.Draft4;
-                else if (baseUri == SchemaConstants.Schema6)
-                    Version = SchemaVersion.Draft6;
-                else if (baseUri == SchemaConstants.Schema7)
-                    Version = SchemaVersion.Draft7;
-                else if (baseUri == SchemaConstants.Schema201909)
-                    Version = SchemaVersion.Draft201909;
+                if (SchemaConstants.TryGetDraft(baseUri, out SchemaVersion version))
+                    Version = version;
                 this.Resolved = true;
             }
         }

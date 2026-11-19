@@ -91,6 +91,9 @@ namespace MP.Json.Validation
                 ["title"] = Keyword.Title,
                 ["type"] = Keyword.Type,
                 ["uniqueItems"] = Keyword.UniqueItems,
+                ["unevaluatedItems"] = Keyword.UnevaluatedItems,
+                ["unevaluatedProperties"] = Keyword.UnevaluatedProperties,
+                ["$anchor"] = Keyword._Anchor,
                 ["writeOnly"] = Keyword.WriteOnly,
             };
         #endregion

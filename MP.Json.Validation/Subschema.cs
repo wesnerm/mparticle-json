@@ -400,6 +400,26 @@ namespace MP.Json.Validation
 
 
         /// <summary>
+        /// UnevaluatedProperties (2019-09)
+        /// </summary>
+        [DebuggerBrowsable(DebuggerBrowsableState.Never)]
+        public Subschema UnevaluatedProperties
+        {
+            get => (Subschema)GetData(Keyword.UnevaluatedProperties);
+            set => SetData(Keyword.UnevaluatedProperties, value);
+        }
+
+        /// <summary>
+        /// UnevaluatedItems (2019-09)
+        /// </summary>
+        [DebuggerBrowsable(DebuggerBrowsableState.Never)]
+        public Subschema UnevaluatedItems
+        {
+            get => (Subschema)GetData(Keyword.UnevaluatedItems);
+            set => SetData(Keyword.UnevaluatedItems, value);
+        }
+
+        /// <summary>
         /// UniqueItems
         /// </summary>
         [DebuggerBrowsable(DebuggerBrowsableState.Never)]
@@ -677,6 +697,8 @@ namespace MP.Json.Validation
                     case Keyword.Then:
                     case Keyword.Else:
                     case Keyword.Not:
+                    case Keyword.UnevaluatedProperties:
+                    case Keyword.UnevaluatedItems:
                         AddProperty(list, keyword,
                             ((Subschema)GetData(keyword)).ToJson());
                         break;

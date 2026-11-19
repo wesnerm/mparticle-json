@@ -18,6 +18,7 @@ using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using static MP.Json.Validation.BitUtils;
 using System.Collections.Generic;
+using System.Text;
 
 namespace MP.Json.Validation
 {
@@ -43,6 +44,13 @@ namespace MP.Json.Validation
 
         private int timeToLive;
 
+        /// <summary>
+        /// $ref targets currently being evaluated, with the instance depth at which each
+        /// was entered. Used to detect reference cycles that make no progress.
+        /// </summary>
+        private readonly List<(Subschema schema, int instanceDepth)> activeRefs
+            = new List<(Subschema, int)>();
+
         #endregion
 
         #region Construction
@@ -59,15 +67,46 @@ namespace MP.Json.Validation
         public readonly JsonPointer InstancePointer = new JsonPointer();
 
         /// <summary>
-        /// Strict compliance at the cost of performance 
+        /// Strict compliance at the cost of performance.
         /// </summary>
-
+        /// <remarks>
+        /// No longer affects validation: minLength and maxLength always count Unicode
+        /// code points, as JSON Schema requires. Kept for compatibility.
+        /// </remarks>
         public bool Strict { get; set; }
+
+        /// <summary>
+        /// Number of Unicode code points in a string. A surrogate pair counts as one;
+        /// an unpaired surrogate counts as one.
+        /// </summary>
+        internal static int CodePointLength(string s)
+        {
+            int length = s.Length;
+            for (int i = 0; i < s.Length - 1; i++)
+            {
+                if (char.IsHighSurrogate(s[i]) && char.IsLowSurrogate(s[i + 1]))
+                {
+                    length--;
+                    i++;
+                }
+            }
+            return length;
+        }
 
         /// <summary>
         /// Enable coercion of string values to numbers and booleans
         /// </summary>
         public bool CoerceStringsToValues { get; set; }
+
+        /// <summary>
+        /// Validates string content against contentEncoding and contentMediaType (draft 7+).
+        /// </summary>
+        /// <remarks>
+        /// Off by default: JSON Schema defines these keywords as annotations, not assertions.
+        /// When on, "base64" encoding and JSON media types ("application/json" and "+json")
+        /// are checked; other encodings and media types are not.
+        /// </remarks>
+        public bool ValidateContent { get; set; }
 
         /// <summary>
         /// Whether validation should abort on first error
@@ -211,6 +250,7 @@ namespace MP.Json.Validation
 
             SchemaPointer.Clear();
             InstancePointer.Clear();
+            activeRefs.Clear();
 
             suppressionLevel = 0;
 
@@ -444,12 +484,25 @@ namespace MP.Json.Validation
                         }
 
                         var rSchema = r.Schema;
-                        result = rSchema != null && ReferenceUsageIsControlled();
-                        if (result == true && !Validate(rSchema, instance, Keyword._Ref))
-                            finalResult = false;
+                        int instanceDepth = InstancePointer.Length;
+                        result = rSchema != null && !IsReferenceCycle(rSchema, instanceDepth);
+                        if (result == true)
+                        {
+                            activeRefs.Add((rSchema, instanceDepth));
+                            bool refResult = Validate(rSchema, instance, Keyword._Ref);
+                            activeRefs.RemoveAt(activeRefs.Count - 1);
+                            if (!refResult)
+                                finalResult = false;
+                        }
                         break;
 
                     case Keyword.Metadata:
+                        if (ValidateContent && instance is string text && !CheckContent(schema, text))
+                        {
+                            finalResult = false;
+                            if (!IsRecordingErrors)
+                                return false;
+                        }
                         break;
                 }
 
@@ -464,15 +517,26 @@ namespace MP.Json.Validation
             return finalResult;
         }
 
-        private bool ReferenceUsageIsControlled()
+        /// <summary>
+        /// Whether following a $ref to <paramref name="target"/> would loop forever.
+        /// </summary>
+        /// <remarks>
+        /// Instance depth never decreases while descending, so if the same $ref target is
+        /// already being evaluated at the same instance depth, it is being applied to the
+        /// same instance node again without any progress: an infinite loop. Any other
+        /// nesting of $ref, allOf, anyOf, etc. is allowed, however deep the schema path.
+        /// </remarks>
+        private bool IsReferenceCycle(Subschema target, int instanceDepth)
         {
-            // The basic idea is that each use of a reference should contribute to
-            // some progress in the processing of the instance
-
-            int schemaDepth = SchemaPointer.Length;
-            int instanceDepth = InstancePointer.Length;
-            int allowedDepth = 2 * instanceDepth + 2;
-            return schemaDepth <= allowedDepth;
+            for (int i = activeRefs.Count - 1; i >= 0; i--)
+            {
+                var active = activeRefs[i];
+                if (active.instanceDepth < instanceDepth)
+                    break; // entered at a shallower depth, so progress has been made since
+                if (active.schema == target)
+                    return true;
+            }
+            return false;
         }
 
         private bool ValidateObject(Subschema schema, KeyValuePair<string, object>[] map)
@@ -571,8 +635,266 @@ namespace MP.Json.Validation
                     schema.Properties, schema.PatternProperties, schema.AdditionalProperties))
                 finalResult = false;
 
+            if ((schema.Flags & SchemaFlags.UnevaluatedProperties) != 0
+                && (finalResult || IsRecordingErrors)
+                && !ValidateUnevaluatedProperties(schema, map))
+                finalResult = false;
+
             return finalResult;
         }
+
+        #region Content (contentEncoding, contentMediaType)
+
+        private static readonly Encoding StrictUtf8 = new UTF8Encoding(false, true);
+
+        /// <summary>
+        /// Checks contentEncoding and contentMediaType for a string instance. Reports errors.
+        /// </summary>
+        private bool CheckContent(Subschema schema, string text)
+        {
+            string encoding = schema.GetMetadata("contentEncoding").Value as string;
+            string mediaType = schema.GetMetadata("contentMediaType").Value as string;
+            if (encoding == null && mediaType == null)
+                return true;
+
+            string content = text;
+            if (encoding != null)
+            {
+                if (!string.Equals(encoding, "base64", StringComparison.OrdinalIgnoreCase))
+                    return true; // only base64 is checked
+
+                byte[] bytes;
+                try
+                {
+                    bytes = Convert.FromBase64String(text);
+                }
+                catch (FormatException)
+                {
+                    ReportError(Keyword.ContentEncoding, schema, text, encoding);
+                    return false;
+                }
+
+                try
+                {
+                    content = StrictUtf8.GetString(bytes);
+                }
+                catch (DecoderFallbackException)
+                {
+                    content = null; // binary content: only a text media type can fail below
+                }
+            }
+
+            if (mediaType != null && IsJsonMediaType(mediaType)
+                && (content == null || !new JsonParser { Strict = true }.TryParse(content, out _)))
+            {
+                ReportError(Keyword.ContentMediaType, schema, text, mediaType);
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool IsJsonMediaType(string mediaType)
+        {
+            int semicolon = mediaType.IndexOf(';');
+            string type = (semicolon >= 0 ? mediaType.Substring(0, semicolon) : mediaType).Trim();
+            return string.Equals(type, "application/json", StringComparison.OrdinalIgnoreCase)
+                || type.EndsWith("+json", StringComparison.OrdinalIgnoreCase);
+        }
+
+        #endregion
+
+        #region Unevaluated properties and items (draft 2019-09)
+
+        /// <summary>
+        /// Applies unevaluatedProperties to the properties that no other keyword evaluated.
+        /// </summary>
+        /// <remarks>
+        /// A property is evaluated if properties, patternProperties, additionalProperties or a
+        /// nested unevaluatedProperties applied to it, in this schema or in any in-place
+        /// subschema (allOf, anyOf, oneOf, if/then/else, $ref, dependentSchemas) that
+        /// successfully validates the instance. Annotations from failing subschemas are dropped.
+        /// </remarks>
+        private bool ValidateUnevaluatedProperties(Subschema schema, KeyValuePair<string, object>[] map)
+        {
+            var evaluated = new bool[map.Length];
+            MarkEvaluatedProperties(schema, map, evaluated, new HashSet<Subschema>(), isRoot: true);
+
+            bool result = true;
+            Subschema unevaluated = schema.UnevaluatedProperties;
+            for (int i = 0; i < map.Length; i++)
+            {
+                if (evaluated[i])
+                    continue;
+                if (!Validate(unevaluated, map[i].Value, Keyword.UnevaluatedProperties, null, map[i].Key))
+                {
+                    result = false;
+                    if (!IsRecordingErrors)
+                        return false;
+                }
+            }
+            return result;
+        }
+
+        private void MarkEvaluatedProperties(Subschema schema, KeyValuePair<string, object>[] map,
+            bool[] evaluated, HashSet<Subschema> visiting, bool isRoot)
+        {
+            var flags = schema.Flags;
+
+            // additionalProperties (and a nested unevaluatedProperties) evaluate every remaining property
+            if ((flags & SchemaFlags.AdditionalProperties) != 0
+                || (!isRoot && (flags & SchemaFlags.UnevaluatedProperties) != 0))
+            {
+                for (int i = 0; i < evaluated.Length; i++)
+                    evaluated[i] = true;
+                return;
+            }
+
+            if ((flags & SchemaFlags.Properties) != 0)
+            {
+                foreach (var kv in schema.Properties)
+                {
+                    int index = map.GetPropertyIndex(kv.Key);
+                    if (index >= 0)
+                        evaluated[index] = true;
+                }
+            }
+
+            if ((flags & SchemaFlags.PatternProperties) != 0)
+            {
+                foreach (var pp in schema.PatternProperties)
+                    for (int i = 0; i < map.Length; i++)
+                        if (!evaluated[i] && pp.Key.Matches(map[i].Key) == SchemaRegexSuccess.Success)
+                            evaluated[i] = true;
+            }
+
+            if (!visiting.Add(schema))
+                return; // reference cycle
+            foreach (var sub in SuccessfulInPlaceSubschemas(schema, map))
+                MarkEvaluatedProperties(sub, map, evaluated, visiting, isRoot: false);
+            visiting.Remove(schema);
+        }
+
+        /// <summary>
+        /// Applies unevaluatedItems to the items after the last one that another keyword evaluated.
+        /// </summary>
+        private bool ValidateUnevaluatedItems(Subschema schema, object[] array)
+        {
+            int evaluated = EvaluatedItemCount(schema, array, new HashSet<Subschema>(), isRoot: true);
+            if (evaluated >= array.Length)
+                return true;
+
+            bool result = true;
+            Subschema unevaluated = schema.UnevaluatedItems;
+            SchemaPointer.Push(Keyword.UnevaluatedItems);
+            for (int i = evaluated; i < array.Length; i++)
+            {
+                if (!Validate(unevaluated, array[i], -1, i))
+                {
+                    result = false;
+                    if (!IsRecordingErrors)
+                        break;
+                }
+            }
+            SchemaPointer.Pop();
+            return result;
+        }
+
+        /// <summary>
+        /// Number of leading items evaluated by items, additionalItems or a nested
+        /// unevaluatedItems (int.MaxValue for all), including successful in-place subschemas.
+        /// In 2019-09, contains does not count.
+        /// </summary>
+        private int EvaluatedItemCount(Subschema schema, object[] array, HashSet<Subschema> visiting, bool isRoot)
+        {
+            var flags = schema.Flags;
+            if (!isRoot && (flags & SchemaFlags.UnevaluatedItems) != 0)
+                return int.MaxValue;
+
+            int count = 0;
+            if ((flags & SchemaFlags.Items) != 0)
+            {
+                if (!(schema.Items is Subschema[] tuple))
+                    return int.MaxValue; // a single items schema applies to every item
+                if ((flags & SchemaFlags.AdditionalItems) != 0)
+                    return int.MaxValue;
+                count = tuple.Length;
+            }
+
+            if (!visiting.Add(schema))
+                return count; // reference cycle
+            foreach (var sub in SuccessfulInPlaceSubschemas(schema, array))
+            {
+                count = Math.Max(count, EvaluatedItemCount(sub, array, visiting, isRoot: false));
+                if (count == int.MaxValue)
+                    break;
+            }
+            visiting.Remove(schema);
+            return count;
+        }
+
+        /// <summary>
+        /// In-place subschemas of <paramref name="schema"/> that apply to the same instance and
+        /// validate it, so that their annotations (evaluated properties and items) count.
+        /// </summary>
+        private IEnumerable<Subschema> SuccessfulInPlaceSubschemas(Subschema schema, object instance)
+        {
+            var flags = schema.Flags;
+
+            if ((flags & SchemaFlags.AllOf) != 0)
+                foreach (var sub in schema.AllOf)
+                    if (IsValidQuietly(sub, instance))
+                        yield return sub;
+
+            if ((flags & SchemaFlags.AnyOf) != 0)
+                foreach (var sub in schema.AnyOf)
+                    if (IsValidQuietly(sub, instance))
+                        yield return sub;
+
+            if ((flags & SchemaFlags.OneOf) != 0)
+                foreach (var sub in schema.OneOf)
+                    if (IsValidQuietly(sub, instance))
+                        yield return sub;
+
+            if ((flags & SchemaFlags.If) != 0)
+            {
+                if (IsValidQuietly(schema.If, instance))
+                {
+                    yield return schema.If;
+                    if (schema.Then != null && IsValidQuietly(schema.Then, instance))
+                        yield return schema.Then;
+                }
+                else if (schema.Else != null && IsValidQuietly(schema.Else, instance))
+                {
+                    yield return schema.Else;
+                }
+            }
+
+            if ((flags & SchemaFlags._Ref) != 0)
+            {
+                var r = schema.Ref;
+                if (r.Version == 0 && r.Schema != null && IsValidQuietly(r.Schema, instance))
+                    yield return r.Schema;
+            }
+
+            if ((flags & SchemaFlags.DependentSchemas) != 0
+                && instance is KeyValuePair<string, object>[] map)
+            {
+                foreach (var kv in schema.DependentSchemas)
+                    if (map.GetPropertyIndex(kv.Key) >= 0 && IsValidQuietly(kv.Value, instance))
+                        yield return kv.Value;
+            }
+        }
+
+        private bool IsValidQuietly(Subschema schema, object instance)
+        {
+            int level = TurnOffErrors();
+            bool result = Validate(schema, instance);
+            RestoreSuppressionLevel(level);
+            return result;
+        }
+
+        #endregion
 
         /// <summary>
         /// Fast approach to search all properties
@@ -834,6 +1156,11 @@ namespace MP.Json.Validation
                 }
             }
 
+            if ((schema.Flags & SchemaFlags.UnevaluatedItems) != 0
+                && (finalResult || IsRecordingErrors)
+                && !ValidateUnevaluatedItems(schema, array))
+                finalResult = false;
+
             return finalResult;
         }
 
@@ -849,26 +1176,17 @@ namespace MP.Json.Validation
                 bool? result = true;
                 switch (keyword)
                 {
+                    // JSON Schema measures string length in Unicode code points.
+                    // A string has at most as many code points as UTF-16 units, so the
+                    // UTF-16 length settles most cases without counting.
                     case Keyword.MinLength:
-                        StringInfo si;
-
-                        result = value.Length >= schema.MinLength;
-                        if (result == true && Strict)
-                        {
-                            si = StringInfo;
-                            si.String = value;
-                            result = si.LengthInTextElements >= schema.MinLength;
-                        }
+                        result = value.Length >= schema.MinLength
+                            && CodePointLength(value) >= schema.MinLength;
                         break;
 
                     case Keyword.MaxLength:
-                        result = value.Length <= schema.MaxLength;
-                        if (result == false && Strict)
-                        {
-                            si = StringInfo;
-                            si.String = value;
-                            result = si.LengthInTextElements <= schema.MaxLength;
-                        }
+                        result = value.Length <= schema.MaxLength
+                            || CodePointLength(value) <= schema.MaxLength;
                         break;
 
                     case Keyword.Pattern:
@@ -935,14 +1253,7 @@ namespace MP.Json.Validation
                         break;
 
                     case Keyword.MultipleOf:
-                        double m = (double)schema.MultipleOf;
-                        double r = value % m;
-                        if (r != 0)
-                        {
-                            r = Math.Abs(r);
-                            r = Math.Min(m - r, r);
-                            result = r < 1e-14 * m;
-                        }
+                        result = IsMultipleOf(value, (double)schema.MultipleOf);
                         break;
                 }
 
@@ -955,6 +1266,41 @@ namespace MP.Json.Validation
             }
 
             return finalResult;
+        }
+
+        // Numbers in this range with up to 17 significant digits convert to decimal exactly
+        private const double DecimalMin = 1e-11;
+        private const double DecimalMax = 1e27;
+
+        /// <summary>
+        /// Whether <paramref name="value"/> is an integer multiple of <paramref name="divisor"/>.
+        /// </summary>
+        /// <remarks>
+        /// JSON numbers are decimal literals, so 0.3 is a multiple of 0.1 even though their
+        /// binary doubles are not. When both numbers are in a range that decimal represents
+        /// exactly, the check uses exact decimal arithmetic on their shortest round-trip forms.
+        /// Otherwise it checks that the quotient is within a relative tolerance of an integer.
+        /// </remarks>
+        internal static bool IsMultipleOf(double value, double divisor)
+        {
+            if (value == 0)
+                return true;
+
+            double absValue = Math.Abs(value);
+            double absDivisor = Math.Abs(divisor);
+            if (absValue >= DecimalMin && absValue <= DecimalMax
+                && absDivisor >= DecimalMin && absDivisor <= DecimalMax)
+            {
+                decimal v = decimal.Parse(value.ToString("R", CultureInfo.InvariantCulture), NumberStyles.Float, CultureInfo.InvariantCulture);
+                decimal d = decimal.Parse(divisor.ToString("R", CultureInfo.InvariantCulture), NumberStyles.Float, CultureInfo.InvariantCulture);
+                return v % d == 0m;
+            }
+
+            double quotient = value / divisor;
+            if (double.IsInfinity(quotient))
+                return value % divisor == 0; // e.g. 1e308 / 0.5 overflows
+            double nearest = Math.Round(quotient);
+            return nearest != 0 && Math.Abs(quotient - nearest) <= 1e-12 * Math.Abs(quotient);
         }
 
         #endregion

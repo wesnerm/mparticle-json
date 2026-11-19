@@ -98,7 +98,14 @@ namespace MP.Json.Validation
                             string reference = Document.ConvertReference(relReference);
                             Ids[reference] = obj;
                         }
-                        else if (kv.Key == "$ref")
+                        else if (kv.Key == "$anchor" && Document.Allows(SchemaVersion.Draft201909))
+                        {
+                            // A plain-name fragment ("#name") that identifies this subschema
+                            string reference = Document.ConvertReference("#" + relReference);
+                            Ids[reference] = obj;
+                        }
+                        else if (kv.Key == "$ref"
+                            || (kv.Key == "$recursiveRef" && Document.Allows(SchemaVersion.Draft201909)))
                         {
                             string reference = Document.ConvertReference(relReference);
                             References.Add(reference);
@@ -185,7 +192,7 @@ namespace MP.Json.Validation
                         break;
 
                     case Keyword.Const:
-                        if (!doc.LimitVersion(SchemaVersion.Draft6, true)) return null;
+                        if (!doc.Allows(SchemaVersion.Draft6)) break; // keyword from another draft: ignore
                         subschema.Const = MPJson.From(v);
                         break;
 
@@ -233,21 +240,21 @@ namespace MP.Json.Validation
                         break;
 
                     case Keyword.If:
-                        if (!doc.LimitVersion(SchemaVersion.Draft7, true)) return null;
+                        if (!doc.Allows(SchemaVersion.Draft7)) break; // keyword from another draft: ignore
                         child = From(v, doc);
                         if (child == null) return null;
                         subschema.If = child;
                         break;
 
                     case Keyword.Then:
-                        if (!doc.LimitVersion(SchemaVersion.Draft7, true)) return null;
+                        if (!doc.Allows(SchemaVersion.Draft7)) break; // keyword from another draft: ignore
                         child = From(v, doc);
                         if (child == null) return null;
                         subschema.Then = child;
                         break;
 
                     case Keyword.Else:
-                        if (!doc.LimitVersion(SchemaVersion.Draft7, true)) return null;
+                        if (!doc.Allows(SchemaVersion.Draft7)) break; // keyword from another draft: ignore
                         child = From(v, doc);
                         if (child == null) return null;
                         subschema.Else = child;
@@ -255,18 +262,18 @@ namespace MP.Json.Validation
 
                     // Number attributes
                     case Keyword.ExclusiveMaximum:
-                        if (v is double && doc.LimitVersion(SchemaVersion.Draft6, true))
+                        if (v is double && doc.Allows(SchemaVersion.Draft6))
                             subschema.ExclusiveMaximum = (double)v;
-                        else if (v is bool && doc.LimitVersion(SchemaVersion.Draft4, false))
+                        else if (v is bool && doc.Allows(SchemaVersion.Draft4, false))
                             exclusiveMaximum = (bool)v;
                         else
                             return null;
                         break;
 
                     case Keyword.ExclusiveMinimum:
-                        if (v is double && doc.LimitVersion(SchemaVersion.Draft6, true))
+                        if (v is double && doc.Allows(SchemaVersion.Draft6))
                             subschema.ExclusiveMinimum = (double)v;
-                        else if (v is bool && doc.LimitVersion(SchemaVersion.Draft4, false))
+                        else if (v is bool && doc.Allows(SchemaVersion.Draft4, false))
                             exclusiveMinimum = (bool)v;
                         else
                             return null;
@@ -336,14 +343,14 @@ namespace MP.Json.Validation
                         break;
 
                     case Keyword.DependentRequired:
-                        if (!doc.LimitVersion(SchemaVersion.Draft201909, true)) return null;
+                        if (!doc.Allows(SchemaVersion.Draft201909)) break; // keyword from another draft: ignore
                         if (!ReadDependencies(v, doc, out schemas, out depRequired)) return null;
                         if (schemas != null) return null;
                         subschema.DependentRequired = depRequired;
                         break;
 
                     case Keyword.DependentSchemas:
-                        if (!doc.LimitVersion(SchemaVersion.Draft201909, true)) return null;
+                        if (!doc.Allows(SchemaVersion.Draft201909)) break; // keyword from another draft: ignore
                         schemas = ReadPropertySchemas(v, doc);
                         if (schemas == null) return null;
                         subschema.DependentSchemas = schemas;
@@ -372,7 +379,7 @@ namespace MP.Json.Validation
                         break;
 
                     case Keyword.PropertyNames:
-                        if (!doc.LimitVersion(SchemaVersion.Draft6, true)) return null;
+                        if (!doc.Allows(SchemaVersion.Draft6)) break; // keyword from another draft: ignore
                         child = From(v, doc);
                         if (child == null) return null;
                         subschema.PropertyNames = child;
@@ -392,7 +399,7 @@ namespace MP.Json.Validation
                         break;
 
                     case Keyword.Contains:
-                        if (!doc.LimitVersion(SchemaVersion.Draft6, true)) return null;
+                        if (!doc.Allows(SchemaVersion.Draft6)) break; // keyword from another draft: ignore
                         child = From(v, doc);
                         if (child == null) return null;
                         subschema.Contains = child;
@@ -405,13 +412,29 @@ namespace MP.Json.Validation
                         break;
 
                     case Keyword.MaxContains:
+                        if (!doc.Allows(SchemaVersion.Draft201909)) break; // keyword from another draft: ignore
                         if (!IsNonnegativeInteger(v)) return null;
                         subschema.MaxContains = (double)v;
                         break;
 
                     case Keyword.MinContains:
+                        if (!doc.Allows(SchemaVersion.Draft201909)) break; // keyword from another draft: ignore
                         if (!IsNonnegativeInteger(v)) return null;
                         subschema.MinContains = (double)v;
+                        break;
+
+                    case Keyword.UnevaluatedProperties:
+                        if (!doc.Allows(SchemaVersion.Draft201909)) break; // keyword from another draft: ignore
+                        child = From(v, doc);
+                        if (child == null) return null;
+                        subschema.UnevaluatedProperties = child;
+                        break;
+
+                    case Keyword.UnevaluatedItems:
+                        if (!doc.Allows(SchemaVersion.Draft201909)) break; // keyword from another draft: ignore
+                        child = From(v, doc);
+                        if (child == null) return null;
+                        subschema.UnevaluatedItems = child;
                         break;
 
                     case Keyword.MaxItems:
@@ -437,13 +460,38 @@ namespace MP.Json.Validation
                         var r = subschema.Ref = new SchemaReference(reference);
                         break;
 
+                    case Keyword._RecursiveRef:
+                        // $recursiveRef resolves to the outermost schema resource in the dynamic
+                        // scope that sets $recursiveAnchor. Without remote references, a document is
+                        // a single resource, so it resolves like a $ref to the same URI.
+                        if (!doc.Allows(SchemaVersion.Draft201909)) break; // keyword from another draft: ignore
+                        name = v as string;
+                        if (name == null) return null;
+                        if ((subschema.Flags & SchemaFlags._Ref) == 0)
+                            subschema.Ref = new SchemaReference(doc.ConvertReference(name));
+                        break;
+
+                    case Keyword._RecursiveAnchor:
+                        if (!doc.Allows(SchemaVersion.Draft201909)) break; // keyword from another draft: ignore
+                        if (!(v is bool)) return null;
+                        AddMetadata(ref metadata, kv.Key, v);
+                        break;
+
+                    case Keyword._Anchor:
+                        // Registered as an identifier in GatherIdsAndReferences
+                        if (!doc.Allows(SchemaVersion.Draft201909)) break; // keyword from another draft: ignore
+                        name = v as string;
+                        if (name == null) return null;
+                        AddMetadata(ref metadata, kv.Key, v);
+                        break;
+
                     case Keyword.Id:
-                        if (!doc.LimitVersion(SchemaVersion.Draft4, false))
-                            return null;
+                        if (!doc.Allows(SchemaVersion.Draft4, false))
+                            break; // "id" is only a keyword in draft 4
                         goto DoId;
 
                     case Keyword._Id:
-                        if (!doc.LimitVersion(SchemaVersion.Draft6, true)) return null;
+                        if (!doc.Allows(SchemaVersion.Draft6)) break; // keyword from another draft: ignore
 
                         DoId:
                         name = v as string;
@@ -472,7 +520,7 @@ namespace MP.Json.Validation
                     case Keyword._Comment:
                     case Keyword.ContentEncoding:
                     case Keyword.ContentMediaType:
-                        if (!doc.LimitVersion(SchemaVersion.Draft7, true)) return null;
+                        if (!doc.Allows(SchemaVersion.Draft7)) break; // keyword from another draft: ignore
                         name = v as string;
                         if (name == null) return null;
                         AddMetadata(ref metadata, kv.Key, v);
@@ -481,13 +529,13 @@ namespace MP.Json.Validation
                     case Keyword.Deprecated:
                     case Keyword.ReadOnly:
                     case Keyword.WriteOnly:
-                        if (!doc.LimitVersion(SchemaVersion.Draft7, true)) return null;
+                        if (!doc.Allows(SchemaVersion.Draft7)) break; // keyword from another draft: ignore
                         if (!(v is bool)) return null;
                         if ((bool)v) AddMetadata(ref metadata, kv.Key, v);
                         break;
 
                     case Keyword._Defs:
-                        if (!doc.LimitVersion(SchemaVersion.Draft201909, true)) return null;
+                        if (!doc.Allows(SchemaVersion.Draft201909)) break; // keyword from another draft: ignore
                         goto case Keyword.Definitions;
 
                     case Keyword.Definitions:
@@ -498,10 +546,11 @@ namespace MP.Json.Validation
                 }
             }
 
-            // Ignore all other keywords if ref is present
-            // Draft8 might have changed this,
-            // but it is not reflected in the standard test suite
-            if ((subschema.Flags & SchemaFlags._Ref) != 0)
+            // In drafts 4-7, keywords next to $ref are ignored. Draft 2019-09 applies them,
+            // so they are kept when the schema is 2019-09 only (declared with $schema or
+            // requested by version). Schemas that may be an earlier draft keep the old rule.
+            const SchemaVersion RefOverridesSiblings = SchemaVersion.Draft4 | SchemaVersion.Draft6 | SchemaVersion.Draft7;
+            if ((subschema.Flags & SchemaFlags._Ref) != 0 && (doc.Version & RefOverridesSiblings) != 0)
             {
                 subschema.Flags &= ~SchemaFlags.StoredProperties;
                 subschema.Flags |= SchemaFlags.TypeAll | SchemaFlags._Ref;
@@ -551,7 +600,7 @@ namespace MP.Json.Validation
 
         private static bool IsNonnegativeInteger(object obj)
         {
-            return obj is double d && d > 0 && Math.Floor(d) == d;
+            return obj is double d && d >= 0 && Math.Floor(d) == d;
         }
 
         private static bool AddMetadata(ref List<KeyValuePair<string, object>> list, string name, object value)

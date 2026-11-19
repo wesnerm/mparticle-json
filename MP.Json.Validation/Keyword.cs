@@ -81,6 +81,8 @@ namespace MP.Json.Validation
         Else,                   // v7
         MaxContains,            // v8, array property
         MinContains,            // v8, array property
+        UnevaluatedProperties,  // v8, object property, applied after all other keywords
+        UnevaluatedItems,       // v8, array property, applied after all other keywords
 
         MAX_STORED,
 

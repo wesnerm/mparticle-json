@@ -40,6 +40,13 @@ namespace MP.Json.Validation
                 case "hostname":
                     return IsHostname(value);
 
+                // Draft 7
+                case "idn-email":
+                    return IsIdnEmail(value);
+
+                case "idn-hostname":
+                    return IsIdnHostname(value);
+
                 case "ipv4":
                     return IsIpv4(value);
 
@@ -86,18 +93,13 @@ namespace MP.Json.Validation
             return null;
         }
 
+        /// <summary>
+        /// Whether the value is a valid ECMA-262 regular expression (format "regex")
+        /// </summary>
         public static bool IsRegex(string value)
         {
-            try
-            {
-                // TODO: Very expensive call
-                new Regex(value);
-                return true;
-            }
-            catch
-            {
-                return false;
-            }
+            // TODO: Very expensive call
+            return EcmaRegex.IsValid(value);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -422,12 +424,174 @@ namespace MP.Json.Validation
             return Uri.IsWellFormedUriString(sb.ToString(), UriKind.RelativeOrAbsolute);
         }
 
-        public static bool IsUuid(string value)
+        public static bool IsUuid(string value) => FormatRegexes.Uuid.IsMatch(value);
+
+        #region Internationalized host names and e-mail addresses
+
+        /// <summary>
+        /// Internationalized host name (RFC 5890). Uses UTS #46 processing (IdnMapping) for
+        /// validity and length, plus the IDNA2008 exception and contextual rules of RFC 5892.
+        /// </summary>
+        public static bool IsIdnHostname(string value)
         {
-            return Regex.IsMatch(value,
-                @"^[\dA-F]{8}\-[\dA-F]{4}\-[\dA-F]{4}\-[\dA-F]{4}\-[\dA-F]{12}$",
-                RegexOptions.IgnoreCase | RegexOptions.Compiled);
+            if (string.IsNullOrEmpty(value))
+                return false;
+
+            string ascii;
+            try
+            {
+                // IdnMapping instances are not documented as thread-safe
+                ascii = new IdnMapping { UseStd3AsciiRules = true, AllowUnassigned = false }.GetAscii(value);
+            }
+            catch (ArgumentException)
+            {
+                return false;
+            }
+
+            if (!IsHostname(ascii))
+                return false;
+
+            foreach (string label in value.Split('.', '\u3002', '\uFF0E', '\uFF61'))
+                if (!IsIdna2008Label(label))
+                    return false;
+            return true;
         }
+
+        /// <summary>
+        /// Internationalized e-mail address (RFC 6531): a local part, which may contain
+        /// non-ASCII characters, and an internationalized host name.
+        /// </summary>
+        public static bool IsIdnEmail(string value)
+        {
+            if (string.IsNullOrEmpty(value))
+                return false;
+
+            int at = value.LastIndexOf('@');
+            if (at <= 0 || at == value.Length - 1)
+                return false;
+
+            string local = value.Substring(0, at);
+            if (local[0] == '.' || local[local.Length - 1] == '.' || local.Contains(".."))
+                return false;
+            foreach (char ch in local)
+                if (char.IsControl(ch) || char.IsWhiteSpace(ch) || "()<>[]:;@\\,\"".IndexOf(ch) >= 0)
+                    return false;
+
+            return IsIdnHostname(value.Substring(at + 1));
+        }
+
+        /// <summary>
+        /// RFC 5892 exceptions (section 2.6) and contextual rules (appendix A) for one label.
+        /// </summary>
+        private static bool IsIdna2008Label(string label)
+        {
+            bool hasArabicIndic = false, hasExtendedArabicIndic = false;
+            bool hasKatakanaMiddleDot = false, hasJapanese = false;
+
+            for (int i = 0; i < label.Length; i++)
+            {
+                int cp = CodePointAt(label, i);
+                int prev = i > 0 ? label[i - 1] : -1;
+                int next = i + 1 < label.Length ? label[i + 1] : -1;
+
+                switch (cp)
+                {
+                    // DISALLOWED exceptions
+                    case 0x0640: // ARABIC TATWEEL
+                    case 0x07FA: // NKO LAJANYALAN
+                    case 0x302E: // HANGUL SINGLE DOT TONE MARK
+                    case 0x302F: // HANGUL DOUBLE DOT TONE MARK
+                    case 0x3031: case 0x3032: case 0x3033: case 0x3034: case 0x3035: // VERTICAL KANA REPEAT MARKS
+                    case 0x303B: // VERTICAL IDEOGRAPHIC ITERATION MARK
+                        return false;
+
+                    case 0x00B7: // MIDDLE DOT: only between two 'l's (Catalan)
+                        if (prev != 'l' || next != 'l')
+                            return false;
+                        break;
+
+                    case 0x0375: // GREEK LOWER NUMERAL SIGN: followed by Greek
+                        if (next < 0 || !IsGreek(next))
+                            return false;
+                        break;
+
+                    case 0x05F3: // HEBREW PUNCTUATION GERESH
+                    case 0x05F4: // HEBREW PUNCTUATION GERSHAYIM
+                        if (prev < 0 || !IsHebrew(prev))
+                            return false;
+                        break;
+
+                    case 0x30FB: // KATAKANA MIDDLE DOT: label needs Hiragana, Katakana or Han
+                        hasKatakanaMiddleDot = true;
+                        break;
+
+                    case 0x200D: // ZERO WIDTH JOINER: only after a virama
+                        if (prev < 0 || !IsVirama(prev))
+                            return false;
+                        break;
+
+                    default:
+                        if (cp >= 0x0660 && cp <= 0x0669)
+                            hasArabicIndic = true;
+                        else if (cp >= 0x06F0 && cp <= 0x06F9)
+                            hasExtendedArabicIndic = true;
+                        else if (IsHiraganaKatakanaOrHan(cp))
+                            hasJapanese = true;
+                        break;
+                }
+
+                if (cp > 0xFFFF)
+                    i++; // skip the low surrogate
+            }
+
+            if (hasArabicIndic && hasExtendedArabicIndic)
+                return false;
+            if (hasKatakanaMiddleDot && !hasJapanese)
+                return false;
+            return true;
+        }
+
+        // Code point at i; an unpaired surrogate is returned as itself
+        private static int CodePointAt(string s, int i)
+            => char.IsHighSurrogate(s[i]) && i + 1 < s.Length && char.IsLowSurrogate(s[i + 1])
+                ? char.ConvertToUtf32(s[i], s[i + 1])
+                : s[i];
+
+        private static bool IsGreek(int cp) => (cp >= 0x0370 && cp <= 0x03FF) || (cp >= 0x1F00 && cp <= 0x1FFF);
+
+        private static bool IsHebrew(int cp) => cp >= 0x0590 && cp <= 0x05FF;
+
+        private static bool IsHiraganaKatakanaOrHan(int cp)
+            => (cp >= 0x3040 && cp <= 0x309F)                 // Hiragana
+            || (cp >= 0x30A0 && cp <= 0x30FF && cp != 0x30FB) // Katakana
+            || (cp >= 0x31F0 && cp <= 0x31FF)                 // Katakana phonetic extensions
+            || (cp >= 0x2E80 && cp <= 0x2FDF)                 // CJK radicals
+            || cp == 0x3005 || cp == 0x3007
+            || (cp >= 0x3021 && cp <= 0x3029)
+            || (cp >= 0x3038 && cp <= 0x303A)
+            || (cp >= 0x3400 && cp <= 0x4DBF)                 // CJK extension A
+            || (cp >= 0x4E00 && cp <= 0x9FFF)                 // CJK unified ideographs
+            || (cp >= 0xF900 && cp <= 0xFAFF)                 // CJK compatibility ideographs
+            || (cp >= 0x20000 && cp <= 0x3FFFF);              // CJK extensions B and later
+
+        // Characters with canonical combining class 9 (virama) in the major Indic and SE Asian scripts
+        private static bool IsVirama(int cp)
+        {
+            switch (cp)
+            {
+                case 0x094D: case 0x09CD: case 0x0A4D: case 0x0ACD: case 0x0B4D: case 0x0BCD:
+                case 0x0C4D: case 0x0CCD: case 0x0D3B: case 0x0D3C: case 0x0D4D: case 0x0DCA:
+                case 0x0E3A: case 0x0EBA: case 0x0F84: case 0x1039: case 0x103A: case 0x1714:
+                case 0x1734: case 0x17D2: case 0x1A60: case 0x1B44: case 0x1BAA: case 0x1BAB:
+                case 0x1BF2: case 0x1BF3: case 0x2D7F: case 0xA806: case 0xA8C4: case 0xA953:
+                case 0xA9C0: case 0xAAF6: case 0xABED:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        #endregion
 
         public static bool AreUriCharactersValid(string uri, bool international = false)
         {

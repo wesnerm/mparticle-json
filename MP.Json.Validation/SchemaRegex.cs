@@ -36,16 +36,10 @@ namespace MP.Json.Validation
 
             if (type == RegexType.Normal)
             {
-                try
-                {
-                    RegularExpression = new Regex(pattern,
-                        RegexOptions.CultureInvariant | RegexOptions.ExplicitCapture | RegexOptions.Singleline,
-                        TimeSpan.FromMilliseconds(TimeLimitMs));
-                }
-                catch
-                {
+                // JSON Schema patterns use ECMA-262 semantics, not .NET's
+                RegularExpression = EcmaRegex.Create(pattern, TimeSpan.FromMilliseconds(TimeLimitMs));
+                if (RegularExpression == null)
                     Type = RegexType.FaultedInvalid;
-                }
             }
         }
 
