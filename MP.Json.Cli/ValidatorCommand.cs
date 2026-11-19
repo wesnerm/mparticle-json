@@ -115,7 +115,9 @@ Exit codes:
                     Path = e.InstancePointer,
                     SchemaPath = e.SchemaPointer,
                     Value = e.Actual.Value,
-                    Expected = e.Expected,
+                    // The library passes null both for "no expectation" and for a JSON null;
+                    // only const can expect a JSON null.
+                    Expected = e.Expected ?? (e.ErrorType == ErrorType.Const ? null : DBNull.Value),
                 });
 
                 if (errors.Count >= options.MaxErrors)
@@ -269,10 +271,13 @@ Exit codes:
         /// <summary>JSON Pointer to the failing keyword in the schema</summary>
         public string SchemaPath { get; set; }
 
+        // Value and Expected are raw JSON values: null is a JSON null and
+        // DBNull.Value means there is no value to report.
+
         /// <summary>The offending value (or a related value, such as the actual type name)</summary>
-        public object Value { get; set; }
+        public object Value { get; set; } = DBNull.Value;
 
         /// <summary>What the schema expected, when it can be expressed as JSON</summary>
-        public object Expected { get; set; }
+        public object Expected { get; set; } = DBNull.Value;
     }
 }

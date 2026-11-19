@@ -34,7 +34,7 @@ namespace MP.Json
     /// Strings are represented as String.
     /// Numbers are represented as boxed doubles.
     /// True, False are represented as boxed booleans.
-    /// Null is represented by DBNull.Value.
+    /// Null is represented by null.
     /// </remarks>
     public class JsonParser
     {
@@ -50,6 +50,12 @@ namespace MP.Json
         public static readonly string FalseKeyword = "false";
         public static readonly string NullKeyword = "null";
         public static readonly string UndefinedKeyword = "undefined";
+
+        /// <summary>
+        /// Internal result marking a parse failure. JSON null parses to null, so null
+        /// cannot double as the failure value.
+        /// </summary>
+        private static readonly object Failure = new object();
 
         // Error Messages
         private const string MissingValue = "Missing value";
@@ -122,10 +128,10 @@ namespace MP.Json
             this.Column = 1;
             this.reader = reader;
             this.depth = 0;
-            json = default;
+            json = MPJson.Undefined;
 
             var obj = ParseTerminal();
-            if (obj == null)
+            if (obj == Failure)
                 return false;
 
             int ch = SkipSpaces();
@@ -154,7 +160,10 @@ namespace MP.Json
         private object ParseTerminal()
         {
             if (depth >= maxDepth)
-                return ReportError($"Maximum object/array depth of {maxDepth} exceeded.");
+            {
+                ReportError($"Maximum object/array depth of {maxDepth} exceeded.");
+                return Failure;
+            }
 
             int ch = SkipSpaces();
             switch (ch)
@@ -176,7 +185,7 @@ namespace MP.Json
                 // String
                 case '\'':
                 case '"':
-                    return ParseString();
+                    return (object)ParseString() ?? Failure;
 
                 // TODO: Change code to return Invalid identifiers
                 // when nonstandard ones are found.
@@ -184,20 +193,20 @@ namespace MP.Json
                 // null
                 case 'n':
                     if (Accept(NullKeyword))
-                        return DBNull.Value;
-                    return null;
+                        return null;
+                    return Failure;
 
                 // true
                 case 't':
                     if (Accept(TrueKeyword))
                         return True;
-                    return null;
+                    return Failure;
 
                 // false
                 case 'f':
                     if (Accept(FalseKeyword))
                         return False;
-                    return null;
+                    return Failure;
 
                 // Numbers
                 case '-':
@@ -211,10 +220,12 @@ namespace MP.Json
                 case '7':
                 case '8':
                 case '9':
-                    return ParseNumber();
+                    double? number = ParseNumber();
+                    return number.HasValue ? (object)number.Value : Failure;
 
                 default:
-                    return ReportError(MissingValue);
+                    ReportError(MissingValue);
+                    return Failure;
             }
         }
 
@@ -225,7 +236,10 @@ namespace MP.Json
         private object ParseObject()
         {
             if (!Accept('{'))
-                return ReportError(ExpectedObject);
+            {
+                ReportError(ExpectedObject);
+                return Failure;
+            }
 
             var list = new List<KeyValuePair<string, object>>();
 
@@ -234,13 +248,13 @@ namespace MP.Json
                 do
                 {
                     string property = ParseString();
-                    if (property == null) return null;
+                    if (property == null) return Failure;
 
                     SkipSpaces();
-                    if (!Accept(':')) return null;
+                    if (!Accept(':')) return Failure;
 
                     object value = ParseTerminal();
-                    if (value == null) return null;
+                    if (value == Failure) return Failure;
 
                     list.Add(new KeyValuePair<string, object>(property, value));
                 }
@@ -248,7 +262,7 @@ namespace MP.Json
             }
 
             list.Sort(propertyComparer);
-            return Accept('}') ? list.ToArray() : null;
+            return Accept('}') ? list.ToArray() : Failure;
         }
 
         /// <summary>
@@ -258,7 +272,10 @@ namespace MP.Json
         private object ParseArray()
         {
             if (!Accept('['))
-                return ReportError(ExpectedArray);
+            {
+                ReportError(ExpectedArray);
+                return Failure;
+            }
 
             var list = new List<object>();
 
@@ -266,12 +283,12 @@ namespace MP.Json
                 do
                 {
                     object value = ParseTerminal();
-                    if (value == null) return null;
+                    if (value == Failure) return Failure;
                     list.Add(value);
                 }
                 while (Check(','));
 
-            return Accept(']') ? list.ToArray() : null;
+            return Accept(']') ? list.ToArray() : Failure;
         }
 
         /// <summary>

@@ -50,7 +50,7 @@ namespace MP.Json.Validation
             {
                 if (!Ids.TryGetValue(r, out object value))
                     value = JsonPointer.Find(json, r);
-                Definitions[r] = new SchemaReference(r, value != null ? From(value, doc) : null)
+                Definitions[r] = new SchemaReference(r, From(value, doc))
                 {
                     Id = Definitions.Count
                 };
@@ -556,7 +556,8 @@ namespace MP.Json.Validation
 
         private static bool AddMetadata(ref List<KeyValuePair<string, object>> list, string name, object value)
         {
-            if (value == null) return false;
+            // A JSON null (null) is a real value, e.g. "default": null
+            if (value is DBNull) return false;
             if (list == null) list = new List<KeyValuePair<string, object>>();
             list.Add(new KeyValuePair<string, object>(name, value));
             return true;

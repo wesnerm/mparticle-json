@@ -117,31 +117,39 @@ namespace MP.Json.Validation
             => suppressionLevel == 0 && errorAction != null;
 
 
+        // Error values are raw JSON values: null is a JSON null and DBNull.Value means
+        // "no value". The overloads without an instance use the actual value as the instance.
+
+        internal bool ReportError(ErrorType errorType, Subschema schema, object actual)
+            => ReportError(errorType, schema, actual, null, actual);
+
         internal bool ReportError(ErrorType errorType,
-            Subschema schema = null,
-            object actual = null,
-            object expected = null,
-            object instance = null)
+            Subschema schema,
+            object actual,
+            object expected,
+            object instance)
         {
             var result = ReportError((Keyword)errorType, schema, actual, expected, instance);
             if (errorType == ErrorType.TimeLimit) CancelValidation();
             return result;
         }
 
+        internal bool ReportError(Keyword keyword, Subschema schema, object actual, object expected = null)
+            => ReportError(keyword, schema, actual, expected, actual);
+
         /// <summary>
         /// Pushes an error onto the errors list with the given parameters
         /// </summary>
-        /// <param name="keyword"></param>
-        /// <param name="key"></param>
-        /// <param name="actual"></param>
-        /// <param name="expected"></param>
-        /// <param name="instancePath"></param>
-        /// <param name="schemaPath"></param>
+        /// <param name="keyword">failing keyword</param>
+        /// <param name="schema">failing subschema</param>
+        /// <param name="actual">offending or related value (null is a JSON null; DBNull.Value for none)</param>
+        /// <param name="expected">expected value; defaults to the keyword's data in the schema</param>
+        /// <param name="instance">instance where the failure occurred</param>
         internal bool ReportError(Keyword keyword,
             Subschema schema,
-            object actual = null,
-            object expected = null,
-            object instance = null)
+            object actual,
+            object expected,
+            object instance)
         {
             // Errors being suppressed don't directly affect success result
             if (suppressionLevel > 0 || errorAction == null)
@@ -154,7 +162,7 @@ namespace MP.Json.Validation
             }
 
             validationArgs.Actual = MPJson.From(actual);
-            validationArgs.Instance = MPJson.From(instance ?? actual);
+            validationArgs.Instance = MPJson.From(instance);
             validationArgs.Expected = expected;
             validationArgs.Schema = schema;
             validationArgs.ValidationError = null;
@@ -184,7 +192,7 @@ namespace MP.Json.Validation
             if (timeToLive-- > 0)
                 return false;
 
-            ReportError(ErrorType.TimeLimit, null);
+            ReportError(ErrorType.TimeLimit, null, DBNull.Value);
             CancelValidation();
             return true;
         }
@@ -332,7 +340,7 @@ namespace MP.Json.Validation
                     actual: KeywordUtils.GetTypeText(type),
                     expected: schema.GetValidTypes(),
                     instance: value)
-                : ReportError(ErrorType.None, actual: value);
+                : ReportError(ErrorType.None, null, value);
         }
 
         private bool ValidateGeneric(Subschema schema, object instance)
@@ -695,7 +703,7 @@ namespace MP.Json.Validation
                 if (s == null || map.GetPropertyIndex(s) < 0)
                 {
                     SchemaPointer.Push(index);
-                    ReportError(Keyword.None, schema, actual: prop, expected: s, instance: map);
+                    ReportError(Keyword.None, schema, actual: (object)prop ?? DBNull.Value, expected: s, instance: map);
                     SchemaPointer.Pop();
 
                     result = false;

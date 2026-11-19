@@ -30,7 +30,8 @@ namespace MP.Json
     /// ManateeJSON and others have a lot of unnecessary overhead.
     /// 
     /// Data is stored as raw objects:
-    /// Nulls are represented as DBNullValue.
+    /// JSON nulls are represented as null, so default(MPJson) is a JSON null.
+    /// Undefined (no value, e.g. a missing property) is represented as DBNull.Value.
     /// Strings are represented as strings but we share instances with a small lru.
     /// Booleans are stored as shared objects.
     /// Numbers are normally stored as doubles just as in Javascript, 
@@ -48,11 +49,11 @@ namespace MP.Json
         [DebuggerBrowsable(DebuggerBrowsableState.Never)]
         public static readonly MPJson False = MPJson.From(JsonParser.False);
         [DebuggerBrowsable(DebuggerBrowsableState.Never)]
-        public static readonly MPJson Null = MPJson.From(DBNull.Value);
+        public static readonly MPJson Null = default;
         [DebuggerBrowsable(DebuggerBrowsableState.Never)]
         public static readonly MPJson Zero = new MPJson(0.0);
         [DebuggerBrowsable(DebuggerBrowsableState.Never)]
-        public static readonly MPJson Undefined = new MPJson();
+        public static readonly MPJson Undefined = MPJson.From(DBNull.Value);
         [DebuggerBrowsable(DebuggerBrowsableState.Never)]
         private static Comparison<KeyValuePair<string, object>> KeyComparer = (a, b) => string.CompareOrdinal(a.Key, b.Key);
         #endregion
@@ -77,7 +78,7 @@ namespace MP.Json
         /// <param name="s"></param>
         public MPJson(string s)
         {
-            Value = s != null ? (object)s : DBNull.Value;
+            Value = s;
         }
 
         /// <summary>
@@ -168,7 +169,7 @@ namespace MP.Json
         /// <returns></returns>
         public MPJson this[int index]
             => Value is object[] array
-                   && unchecked((uint)index < (uint)array.Length) ? MPJson.From(array[index]) : (default);
+                   && unchecked((uint)index < (uint)array.Length) ? MPJson.From(array[index]) : Undefined;
 
         /// <summary>
         /// Returns the value for key property, otherwise undefined for other types
@@ -177,18 +178,19 @@ namespace MP.Json
         /// <returns></returns>
         public MPJson this[string property]
             => Value is KeyValuePair<string, object>[] map
-                ? MPJson.From(map.GetProperty(property))
-                : default;
+                && map.GetPropertyIndex(property) is int index && index >= 0
+                ? MPJson.From(map[index].Value)
+                : Undefined;
 
         /// <summary>
         /// Returns if Json object is undefined
         /// </summary>
-        public bool IsUndefined => Value == null;
+        public bool IsUndefined => Value is DBNull;
 
         /// <summary>
-        /// Returns if Json object has value
+        /// Returns if Json object has value (including a JSON null)
         /// </summary>
-        public bool HasValue => Value != null;
+        public bool HasValue => !(Value is DBNull);
 
         public int Length => Value is Array array ? array.Length : 0;
 
@@ -546,7 +548,7 @@ namespace MP.Json
         public static JsonType GetType(object obj)
         {
             if (obj == null)
-                return JsonType.Undefined;
+                return JsonType.Null;
 
             // Not sure which is faster
             TypeCode typeCode = System.Type.GetTypeCode(obj.GetType());
@@ -559,7 +561,7 @@ namespace MP.Json
                 case TypeCode.Double:
                     return JsonType.Number;
                 case TypeCode.DBNull:
-                    return JsonType.Null;
+                    return JsonType.Undefined;
                 case TypeCode.Boolean:
                     return JsonType.Boolean;
             }
@@ -585,7 +587,7 @@ namespace MP.Json
                 {
                     var kv = map[i];
                     object mappedChild = func(kv.Value);
-                    if (mappedChild == null) return null;
+                    if (mappedChild is DBNull) return DBNull.Value;
                     if (mappedChild != kv.Value)
                     {
                         result = (KeyValuePair<string, object>[])map.Clone();
@@ -594,7 +596,7 @@ namespace MP.Json
                         {
                             kv = map[i];
                             mappedChild = func(kv.Value);
-                            if (mappedChild == null) return null;
+                            if (mappedChild is DBNull) return DBNull.Value;
                             result[i] = new KeyValuePair<string, object>(kv.Key, mappedChild);
                         }
                     }
@@ -608,7 +610,7 @@ namespace MP.Json
                 {
                     object child = array[i];
                     object mappedChild = func(child);
-                    if (mappedChild == null) return null;
+                    if (mappedChild is DBNull) return DBNull.Value;
                     if (mappedChild != child)
                     {
                         result = (object[])array.Clone();
@@ -617,7 +619,7 @@ namespace MP.Json
                         {
                             child = array[i];
                             mappedChild = func(child);
-                            if (mappedChild == null) return null;
+                            if (mappedChild is DBNull) return DBNull.Value;
                             result[i] = mappedChild;
                         }
                     }
@@ -629,7 +631,8 @@ namespace MP.Json
 
         /// <summary>
         /// Transform every object in tree while reusing any unchanged objects
-        /// If func is null on any object, the whole result is null
+        /// If func returns undefined (DBNull.Value) for any object, the whole result is undefined.
+        /// A JSON null (null) is an ordinary value.
         /// </summary>
         /// <param name="obj"></param>
         /// <param name="func"></param>
@@ -638,7 +641,7 @@ namespace MP.Json
         /// <remarks>
         /// This methods is useful for many different task.
         /// -- Searching for objects
-        ///     - func returns same object if not found, or null if found
+        ///     - func returns same object if not found, or DBNull.Value if found
         /// -- Make modifications to objects
         /// </remarks>
 
@@ -653,7 +656,7 @@ namespace MP.Json
                 {
                     var kv = map[i];
                     object mappedChild = MapAll(kv.Value, func);
-                    if (mappedChild == null) return null;
+                    if (mappedChild is DBNull) return DBNull.Value;
                     if (mappedChild != kv.Value)
                     {
                         resultMap = (KeyValuePair<string, object>[])map.Clone();
@@ -662,7 +665,7 @@ namespace MP.Json
                         {
                             kv = map[i];
                             mappedChild = MapAll(kv.Value, func);
-                            if (mappedChild == null) return null;
+                            if (mappedChild is DBNull) return DBNull.Value;
                             resultMap[i] = new KeyValuePair<string, object>(kv.Key, mappedChild);
                         }
                     }
@@ -676,7 +679,7 @@ namespace MP.Json
                 {
                     object child = array[i];
                     object mappedChild = MapAll(child, func);
-                    if (mappedChild == null) return null;
+                    if (mappedChild is DBNull) return DBNull.Value;
                     if (mappedChild != child)
                     {
                         resultArray = (object[])array.Clone();
@@ -685,7 +688,7 @@ namespace MP.Json
                         {
                             child = array[i];
                             mappedChild = MapAll(child, func);
-                            if (mappedChild == null) return null;
+                            if (mappedChild is DBNull) return DBNull.Value;
                             resultArray[i] = mappedChild;
                         }
                     }

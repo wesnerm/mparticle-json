@@ -16,6 +16,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using MP.Json.Validation;
 using Xunit;
 
 namespace MP.Json.Test
@@ -25,29 +26,67 @@ namespace MP.Json.Test
         [Fact]
         public void UndefinedTest()
         {
-            Assert.Null(default(MPJson).Value);
-            Assert.Equal(JsonType.Undefined, default(MPJson).Type);
-            Assert.Equal(JsonType.Undefined, MPJson.From(null).Type);
-            Assert.True(default(MPJson).IsUndefined);
-            Assert.False(default(MPJson).HasValue);
-
-            Assert.Null(MPJson.Undefined.Value);
+            Assert.Equal(DBNull.Value, MPJson.Undefined.Value);
             Assert.Equal(JsonType.Undefined, MPJson.Undefined.Type);
+            Assert.Equal(JsonType.Undefined, MPJson.From(DBNull.Value).Type);
             Assert.True(MPJson.Undefined.IsUndefined);
             Assert.False(MPJson.Undefined.HasValue);
             Assert.Equal("undefined", MPJson.Undefined.ToString());
+            Assert.NotEqual(MPJson.Null, MPJson.Undefined);
         }
 
         [Fact]
         public void NullTest()
         {
+            Assert.Null(MPJson.Null.Value);
             Assert.Null(MPJson.From(null).Value);
-            Assert.Equal(DBNull.Value, MPJson.Null.Value);
             Assert.Equal(JsonType.Null, MPJson.Null.Type);
             Assert.True(MPJson.Null.HasValue);
             Assert.False(MPJson.Null.IsUndefined);
             Assert.Equal("null", MPJson.Null.ToString());
             Assert.Equal(JsonType.Null, new MPJson(null).Type);
+
+            // default(MPJson) is a JSON null, not undefined
+            Assert.Null(default(MPJson).Value);
+            Assert.Equal(JsonType.Null, default(MPJson).Type);
+            Assert.True(default(MPJson).HasValue);
+            Assert.Equal(MPJson.Null, default(MPJson));
+        }
+
+        [Fact]
+        public void NullIsDistinctFromMissing()
+        {
+            var obj = MPJson.Parse("{ \"a\": null, \"b\": 1 }");
+            Assert.Null(((KeyValuePair<string, object>[])obj.Value)[0].Value);
+            Assert.Equal(MPJson.Null, obj["a"]);
+            Assert.True(obj["a"].HasValue);
+            Assert.Equal(MPJson.Undefined, obj["missing"]);
+
+            var array = MPJson.Parse("[ null, 1 ]");
+            Assert.Null(((object[])array.Value)[0]);
+            Assert.Equal(MPJson.Null, array[0]);
+            Assert.Equal(MPJson.Undefined, array[2]);
+
+            Assert.Null(JsonPointer.Find(obj, "#/a"));
+            Assert.Equal(DBNull.Value, JsonPointer.Find(obj, "#/missing"));
+            Assert.Null(JsonPointer.Find(array, "#/0"));
+            Assert.Equal(DBNull.Value, JsonPointer.Find(array, "#/5"));
+
+            Assert.Equal("{ \"a\":null, \"b\":1 }", obj.ToString());
+        }
+
+        [Fact]
+        public void MapAllKeepsNullValues()
+        {
+            var json = MPJson.Parse("{ \"a\": null, \"b\": [ null, 2 ] }");
+
+            // null children are ordinary values and must not abort the map
+            object same = MPJson.MapAll(json.Value, x => x);
+            Assert.Same(json.Value, same);
+
+            // undefined aborts the whole map
+            object aborted = MPJson.MapAll(json.Value, x => x is double ? DBNull.Value : x);
+            Assert.Equal(DBNull.Value, aborted);
         }
 
         [Fact]

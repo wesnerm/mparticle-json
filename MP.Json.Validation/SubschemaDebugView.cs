@@ -88,6 +88,8 @@ namespace MP.Json.Validation
                     var value = Value;
                     if (value == null)
                         return "null";
+                    if (value is System.DBNull)
+                        return "undefined";
                     if (value is System.Array array)
                         return $"Count = {array.Length}";
                     return value.ToString();

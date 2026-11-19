@@ -122,6 +122,32 @@ namespace MP.Json.Test
         }
 
         [Fact]
+        public void OutputDistinguishesNullFromNoValue()
+        {
+            string schema = WriteFile("schema.json",
+                @"{ ""required"": [""id""], ""properties"": { ""name"": { ""const"": null }, ""age"": { ""const"": 1 } } }");
+            var (exit, stdout, _) = Run(@"{ ""name"": ""x"", ""age"": null }", schema);
+
+            Assert.Equal(ValidatorCommand.ExitInvalid, exit);
+            var errors = ParseErrors(stdout);
+
+            // Required has no offending value, so "value" is omitted
+            var required = errors.Single(e => (string)e["errorType"] == "Required");
+            Assert.True(required["value"].IsUndefined);
+            Assert.Equal("id", (string)required["expected"]);
+
+            // const null expects a JSON null, which is written out
+            var nameError = errors.Single(e => (string)e["path"] == "#/name");
+            Assert.Equal("x", (string)nameError["value"]);
+            Assert.Equal(MPJson.Null, nameError["expected"]);
+
+            // a JSON null value is written as null
+            var ageError = errors.Single(e => (string)e["path"] == "#/age");
+            Assert.Equal(MPJson.Null, ageError["value"]);
+            Assert.Equal(1.0, (double)ageError["expected"]);
+        }
+
+        [Fact]
         public void OutputEscapesStrings()
         {
             string schema = WriteFile("schema.json", @"{ ""properties"": { ""a"": { ""maxLength"": 1 } } }");

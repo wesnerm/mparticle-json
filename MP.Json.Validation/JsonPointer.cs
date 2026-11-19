@@ -248,6 +248,7 @@ namespace MP.Json.Validation
         /// <summary>
         /// Find path
         /// </summary>
+        /// <returns>the value at the path (null for a JSON null), or DBNull.Value if the path does not exist</returns>
         public static object Find(object root, string path)
         {
             int index = path.IndexOf('#');
@@ -272,18 +273,19 @@ namespace MP.Json.Validation
 
                 if (node is KeyValuePair<string, object>[] obj)
                 {
-                    node = obj.GetProperty(key);
-                    if (node == null)
-                        return null;
+                    int propIndex = obj.GetPropertyIndex(key);
+                    if (propIndex < 0)
+                        return DBNull.Value;
+                    node = obj[propIndex].Value;
                 }
                 else if (node is object[] array)
                 {
                     if (!uint.TryParse(key, out uint elemIndex) || elemIndex >= array.Length)
-                        return null;
+                        return DBNull.Value;
                     node = array[elemIndex];
                 }
                 else
-                    return null;
+                    return DBNull.Value;
 
                 index = newIndex + 1;
             }

@@ -53,7 +53,7 @@ namespace MP.Json.Cli
                 WriteProperty(writer, "schemaPath", error.SchemaPath);
                 if (IsJsonValue(error.Value, 0))
                     WriteProperty(writer, "value", error.Value);
-                if (error.Expected != null && IsJsonValue(error.Expected, 0))
+                if (IsJsonValue(error.Expected, 0))
                     WriteProperty(writer, "expected", error.Expected);
                 writer.Write(" }");
                 writer.WriteLine(i < errors.Count - 1 ? "," : "");
@@ -79,8 +79,9 @@ namespace MP.Json.Cli
             if (depth > MaxDepth) return false;
             switch (value)
             {
-                case null:
                 case DBNull _:
+                    return false; // undefined: no value to write
+                case null: // JSON null
                 case string _:
                 case bool _:
                 case double _:
@@ -113,7 +114,6 @@ namespace MP.Json.Cli
             switch (value)
             {
                 case null:
-                case DBNull _:
                     writer.Write("null");
                     break;
                 case string s:

@@ -105,8 +105,8 @@ namespace MP.Json.Validation
         /// <returns></returns>
         public MPJson GetMetadata(string key)
         {
-            object result = Metadata?.GetProperty(key);
-            return result != null ? MPJson.From(result) : MPJson.Undefined;
+            int index = Metadata?.GetPropertyIndex(key) ?? -1;
+            return index >= 0 ? MPJson.From(Metadata[index].Value) : MPJson.Undefined;
         }
 
         /// <summary>

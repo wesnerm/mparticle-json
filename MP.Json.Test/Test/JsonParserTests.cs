@@ -28,6 +28,22 @@ namespace MP.Json.Test
         public void NullTest()
         {
             Assert.Equal(MPJson.Null, MPJson.Parse("null"));
+            Assert.Null(MPJson.Parse("null").Value);
+            Assert.Equal(MPJson.Array(MPJson.Null, MPJson.Null), MPJson.Parse("[ null, null ]"));
+            Assert.Null(MPJson.Parse("{ 'a': null }")["a"].Value);
+        }
+
+        [Theory]
+        [InlineData("nul")]
+        [InlineData("[ null, ")]
+        [InlineData("[ null nul ]")]
+        [InlineData("{ 'a': nul }")]
+        [InlineData("{ 'a': null, }x")]
+        [InlineData("")]
+        public void FailedParseIsUndefined(string text)
+        {
+            Assert.False(MPJson.TryParse(text, out MPJson json));
+            Assert.True(json.IsUndefined);
         }
 
         [Fact]
