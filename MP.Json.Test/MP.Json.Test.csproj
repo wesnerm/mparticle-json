@@ -47,6 +47,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\MP.Json.Validation\MP.Json.Validation.csproj" />
+    <ProjectReference Include="..\MP.Json.Cli\MP.Json.Cli.csproj" />
   </ItemGroup>
 
   <ItemGroup>

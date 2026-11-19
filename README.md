@@ -21,6 +21,14 @@ Documentation for the MP.Json.Validation library is maintained in the wiki for t
 
 This library is available  as a package in Nuget as MP.Json.Validation.
 
+## Command-Line Validator
+
+The `MP.Json.Cli` project builds `mpjson`, a console app that validates a JSON document against a schema and writes the validation errors to standard output as a JSON array (`[]` when the document is valid).
+
+    mpjson <schema.json> [data.json | -] [--max-errors <n>] [--coerce]
+
+The document is read from standard input when no data file is given. Exit codes are 0 (valid), 1 (invalid) and 2 (usage error, unreadable file, malformed JSON or invalid schema). See the Command-Line Validator page in the wiki for the output format.
+
 ## Benchmarks
 
 ### Memory Usage
